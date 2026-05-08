@@ -83,7 +83,7 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
 
     logging.info("Security middleware initialized")
 
-    storage = get_redis_storage()
+    storage = MemoryStorage()
     if isinstance(storage, RedisStorage):
         # Use the same Redis for caching
         await init_cache_manager(storage.redis)
