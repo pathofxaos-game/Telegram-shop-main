@@ -6,7 +6,6 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.storage.redis import RedisStorage
 
 from bot.database.methods import check_category_cached
 from bot.handlers.admin.shop_management_states import init_stats_cache
@@ -16,9 +15,6 @@ from bot.database.models import register_models
 from bot.logger_mesh import configure_logging
 from bot.middleware import setup_rate_limiting, RateLimitConfig
 from bot.middleware.security import SecurityMiddleware, AuthenticationMiddleware
-from bot.misc.caching import init_cache_manager, get_cache_manager
-from bot.misc.caching import CacheScheduler
-from bot.misc.caching import get_redis_storage
 from bot.misc.services import RecoveryManager, CleanupManager
 from bot.misc.metrics import init_metrics, get_metrics, AnalyticsMiddleware
 from bot.database.main import Database as _Database
@@ -27,7 +23,6 @@ from bot.database.main import Database as _Database
 recovery_manager = None
 cleanup_manager = None
 admin_server = None
-cache_scheduler = None
 webhook_active = False
 
 # Global middleware instances for access from handlers
@@ -57,10 +52,10 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
         ban_duration=300,
         admin_bypass=True,
         action_limits={
-            'payment': (10, 60),  # 10 times per minute
-            'shop_view': (60, 60),  # 60 times per minute
-            'buy_item': (5, 60),  # 5 purchases per minute
-            'top_up': (5, 300),  # 5 top-ups in 5 minutes
+            'payment': (10, 60),
+            'shop_view': (60, 60),
+            'buy_item': (5, 60),
+            'top_up': (5, 300),
         }
     )
     global rate_limit_middleware
@@ -70,8 +65,7 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
     metrics = init_metrics()
     analytics_middleware = AnalyticsMiddleware(metrics)
 
-    # Middleware execution order (last registered executes first):
-    # SecurityMiddleware -> AuthenticationMiddleware -> AnalyticsMiddleware -> RateLimitMiddleware -> Handler
+    # Middleware execution order
     dp.message.middleware(analytics_middleware)
     dp.callback_query.middleware(analytics_middleware)
 
@@ -83,25 +77,9 @@ async def __on_start_up(dp: Dispatcher, bot: Bot) -> None:
 
     logging.info("Security middleware initialized")
 
-    storage = MemoryStorage()
-    if isinstance(storage, RedisStorage):
-        # Use the same Redis for caching
-        await init_cache_manager(storage.redis)
-
-        # Initialize the statistics cache
-        init_stats_cache()
-
-        # Warm up critical caches at startup
-        await warm_up_critical_caches()
-
-        logging.info("Cache system initialized and warmed up")
-
-        # Start cache scheduler only when Redis is available
-        global cache_scheduler
-        cache_scheduler = CacheScheduler()
-        await cache_scheduler.start()
-    else:
-        logging.warning("Redis not available - caching disabled")
+    # === REDIS ОТКЛЮЧЁН — используем только MemoryStorage ===
+    logging.warning("Redis caching disabled - using MemoryStorage only")
+    init_stats_cache()  # Инициализируем кэш статистики в памяти
 
     # Start the recovery system
     recovery_manager = RecoveryManager(bot)
@@ -173,33 +151,6 @@ async def __on_shutdown(dp: Dispatcher, bot: Bot) -> None:
     logging.info("Shutdown completed")
 
 
-async def warm_up_critical_caches():
-    """Warming of critical caches at startup"""
-    from bot.database.methods.read import (
-        get_user_count_cached,
-        select_admins_cached
-    )
-
-    cache_manager = get_cache_manager()
-    if not cache_manager:
-        return
-
-    try:
-        # Warming up the base stats
-        await get_user_count_cached()
-        await select_admins_cached()
-
-        # Warming up popular categories and products
-        from bot.database.methods import query_categories
-        categories = await query_categories(limit=5)
-        for category in categories:
-            await check_category_cached(category)
-
-        logging.info("Critical caches warmed up successfully")
-    except Exception as e:
-        logging.error(f"Failed to warm up caches: {e}")
-
-
 async def start_bot() -> None:
     """Start the bot with enhanced security and monitoring"""
 
@@ -231,13 +182,9 @@ async def start_bot() -> None:
         logging.critical("Owner ID not set! Please set OWNER_ID environment variable.")
         sys.exit(1)
 
-    # Retrieve storage (Redis or Memory)
-    storage = get_redis_storage() or MemoryStorage()
-    if isinstance(storage, MemoryStorage):
-        logging.warning(
-            "Using MemoryStorage - FSM states will be lost on restart! "
-            "Consider setting up Redis for production."
-        )
+    # === ИСПОЛЬЗУЕМ ТОЛЬКО MemoryStorage ===
+    storage = MemoryStorage()
+    logging.info("Using MemoryStorage for FSM states")
 
     # Creating a dispatcher
     dp = Dispatcher(storage=storage)
@@ -287,7 +234,6 @@ async def start_bot() -> None:
 
                 async def webhook_handler(request: Request) -> Response:
                     """Process incoming webhook updates"""
-                    # Verify secret token
                     if EnvKeys.WEBHOOK_SECRET:
                         token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
                         if token != EnvKeys.WEBHOOK_SECRET:
@@ -300,13 +246,10 @@ async def start_bot() -> None:
                     return Response(status_code=200)
 
                 from starlette.routing import Route
-                # We need to add the route to the admin app before it starts
-                # The admin_server is already running, so we patch the app
                 admin_server.config.app.routes.append(
                     Route(webhook_path, webhook_handler, methods=["POST"])
                 )
 
-                # Keep the process running
                 await asyncio.Event().wait()
             else:
                 # Polling mode
@@ -319,12 +262,7 @@ async def start_bot() -> None:
             logging.error(f"Bot error: {e}")
             raise
         finally:
-            # Correctly closing connections (called once, whether normal or abnormal exit)
+            # Correctly closing connections
             await __on_shutdown(dp, bot)
-
-            if cache_scheduler:
-                await cache_scheduler.stop()
-
-            if isinstance(storage, RedisStorage):
-                await storage.close()
-                logging.info("Redis connection closed")
+            # MemoryStorage не требует закрытия соединения
+            logging.info("Bot shutdown completed")
