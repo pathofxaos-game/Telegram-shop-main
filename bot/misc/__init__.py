@@ -8,5 +8,5 @@ from bot.misc.validators import (
     PromoCodeRequest, ReviewRequest,
     validate_telegram_id, validate_money_amount, sanitize_html
 )
-# from bot.misc.caching.stats_cache import StatsCache
+from bot.misc.caching.stats_cache import StatsCache
 from bot.misc.caching.cache import get_cache_manager
