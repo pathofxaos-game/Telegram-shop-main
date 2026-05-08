@@ -2,23 +2,36 @@ import asyncio
 import warnings
 import sys
 import os
+import logging
 
-# Подавляем RuntimeWarning
-warnings.filterwarnings("ignore", category=RuntimeWarning)
+# Полностью отключаем RuntimeWarning
+warnings.filterwarnings("ignore")
+warnings.simplefilter("ignore", RuntimeWarning)
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 
 # Добавляем путь
-sys.path.append(os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Импортируем и запускаем
-from bot.main import start_bot
+print("=" * 50)
+print("🚀 ЗАПУСК БОТА TELEGRAM SHOP")
+print("=" * 50)
 
-if __name__ == "__main__":
-    print("🚀 Запуск бота...")
-    try:
-        asyncio.run(start_bot())
-    except KeyboardInterrupt:
-        print("🛑 Бот остановлен")
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        import traceback
-        traceback.print_exc()
+try:
+    from bot.main import start_bot
+    print("✅ Модуль bot.main загружен")
+    print("📡 Запуск polling...")
+    asyncio.run(start_bot())
+except ImportError as e:
+    print(f"❌ Ошибка импорта: {e}")
+    import traceback
+    traceback.print_exc()
+except Exception as e:
+    print(f"❌ Критическая ошибка: {e}")
+    import traceback
+    traceback.print_exc()
