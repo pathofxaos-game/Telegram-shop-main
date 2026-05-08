@@ -1,37 +1,35 @@
-import asyncio
-import warnings
 import sys
 import os
-import logging
+import warnings
+import asyncio
 
-# Полностью отключаем RuntimeWarning
-warnings.filterwarnings("ignore")
-warnings.simplefilter("ignore", RuntimeWarning)
+# 1. Отключаем назойливое предупреждение runpy
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*found in sys.modules.*")
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%H:%M:%S'
-)
+# 2. Добавляем корень проекта в путь импортов
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-# Добавляем путь
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 3. Включаем мгновенный вывод логов (без буферизации)
+os.environ["PYTHONUNBUFFERED"] = "1"
 
-print("=" * 50)
-print("🚀 ЗАПУСК БОТА TELEGRAM SHOP")
-print("=" * 50)
+print("="*40, flush=True)
+print("🚀 ИНИЦИАЛИЗАЦИЯ БОТА", flush=True)
+print("="*40, flush=True)
 
 try:
     from bot.main import start_bot
-    print("✅ Модуль bot.main загружен")
-    print("📡 Запуск polling...")
+    print("✅ Модуль загружен. Запуск...", flush=True)
     asyncio.run(start_bot())
 except ImportError as e:
-    print(f"❌ Ошибка импорта: {e}")
+    print(f"❌ Ошибка импорта: {e}", flush=True)
     import traceback
     traceback.print_exc()
+    sys.exit(1)
 except Exception as e:
-    print(f"❌ Критическая ошибка: {e}")
+    print(f"❌ Критическая ошибка: {e}", flush=True)
     import traceback
     traceback.print_exc()
+    sys.exit(1)
